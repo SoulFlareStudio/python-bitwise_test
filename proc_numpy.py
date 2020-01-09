@@ -4,8 +4,8 @@ from timeit import repeat
 from functools import partial
 
 
-# filename_pattern = "bits_1000x65536_{}_mutate.hdf5"
-filename_pattern = "bits_10000x262144_{}_mutate.hdf5"
+# filename_pattern = "data/bits_1000x65536_{}_mutate.hdf5"
+filename_pattern = "data/bits_10000x262144_{}_mutate.hdf5"
 
 storage_types = ["bool", "byte", "uint32"]
 
