@@ -4,12 +4,16 @@ from timeit import repeat
 from functools import partial
 import sys
 import bitarray
+import argparse
 
 
 # filename_pattern = "data/bits_1000x65536_{}_mutate.hdf5"
 filename_pattern = "data/bits_10000x262144_{}_mutate.hdf5"
 
 storage_types = ["bool", "byte", "uint32"]
+
+parser = argparse.ArgumentParser()
+parser.add_argument("--skip", "-s", choices=storage_types, action="append")
 
 
 def compute_xor(vector, matrix):
@@ -88,7 +92,7 @@ for storage in storage_types:
     n_runs = 100
     n_reps = 3
 
-    time_result = repeat(partial(compute_xor, vector, matrix), setup=setup, repeat=n_reps, number=n_runs)
+    time_result = repeat(partial(compute_xor, vector, matrix), repeat=n_reps, number=n_runs)
     print(f"XOR computation runtime: {run_stats(time_result, n_runs)}")
     xor = compute_xor(vector, matrix)
 

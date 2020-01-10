@@ -50,7 +50,7 @@ seed = 65536
 stamp = current_dt.strftime("%Y-%m-%d_%H-%M-%S")
 
 use_fletcher = True
-compression_level = 6
+compression_level = 3
 
 print(f"Initializing dataset generation with seed: {seed} at {stamp}.")
 
@@ -59,7 +59,7 @@ info = {
     "seed": seed,
     "vector_length": int(2**18),
     "vector_count": int(1e4),
-    "storage": "bool",
+    "storage": "uint32",
     "randomization": "mutate",
     "active_fraction": 0.2,
     "random_fraction": 0.0,
@@ -68,12 +68,12 @@ info = {
     "compression_level": compression_level
 }
 
-parser = argparse.ArgumentParser()
-for (k, v) in info.items():
-    ma, mb = re.search(r"^(\w)", k), re.search(r"_?(?<=\_)(\w)", k)
-    short = "-" + ma.group(0) + (mb.group(1) if mb is not None else "")
+# parser = argparse.ArgumentParser()
+# for (k, v) in info.items():
+#     ma, mb = re.search(r"^(\w)", k), re.search(r"_?(?<=\_)(\w)", k)
+#     short = "-" + ma.group(0) + (mb.group(1) if mb is not None else "")
 
-    parser.add_argument("--" + k, short)
+#     parser.add_argument("--" + k, short)
 
 
 print(f"Settings:\n- number of vectors: {info['vector_count']}\n- vector length: {info['vector_length']}\n- storage type: {info['storage']}"
