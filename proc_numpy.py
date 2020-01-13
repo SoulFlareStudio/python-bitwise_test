@@ -1,13 +1,6 @@
 import numpy as np
 import h5py
-from timeit import repeat
-from functools import partial
-
-
-# filename_pattern = "data/bits_1000x65536_{}_mutate.hdf5"
-filename_pattern = "data/bits_10000x262144_{}_mutate.hdf5"
-
-storage_types = ["bool", "byte", "uint32"]
+from time_utils import time_method
 
 
 def compute_xor(vector, matrix):
@@ -19,7 +12,8 @@ def compute_bits(xor, storage, vector_length):
     if storage == "bool":
         result = xor
     elif storage == "byte":
-        result = np.unpackbits(xor[:, ::-1]).reshape(-1, vector_length).astype(np.bool)
+        result = np.unpackbits(
+            xor[:, ::-1]).reshape(-1, vector_length).astype(np.bool)
     elif storage == "uint32":
         result = np.unpackbits(xor.view(np.uint8)[:, ::-1]).reshape(-1, vector_length).astype(np.bool)
 
@@ -30,16 +24,18 @@ def compute_nonzero(bits):
     return np.count_nonzero(bits, 1)
 
 
-def hamming(vector, matrix, vector_length):
+def hamming(vector, matrix, vector_length, storage):
     # compute XOR
     xor = np.bitwise_xor(vector.T, matrix)
 
     if storage == "bool":
         result = np.sum(xor, 1)
     elif storage == "byte":
-        result = np.count_nonzero(np.unpackbits(xor[:, ::-1]).reshape(-1, vector_length).astype(np.bool), 1)
+        result = np.count_nonzero(np.unpackbits(
+            xor[:, ::-1]).reshape(-1, vector_length).astype(np.bool), 1)
     elif storage == "uint32":
-        result = np.count_nonzero(np.unpackbits(xor.view(np.uint8)[:, ::-1]).reshape(-1, vector_length).astype(np.bool), 1)
+        result = np.count_nonzero(np.unpackbits(
+            xor.view(np.uint8)[:, ::-1]).reshape(-1, vector_length).astype(np.bool), 1)
 
     return result
 
@@ -51,39 +47,40 @@ def run_stats(run_list, runs):
     return f"avg = {mean} (std = {std})"
 
 
-for storage in storage_types:
-    filename = filename_pattern.format(storage)
-    print(f"Computing runtimes for {storage} storage.")
+def run_tests(filename_pattern: str, storage_types: list, n_runs: int, n_reps: int):
+    for storage in storage_types:
+        filename = filename_pattern.format(storage)
+        yield "storage", storage
 
-    try:
-        with h5py.File(filename, "r") as f:
-            vector = f["vector"][()]
-            matrix = f["matrix"][()]
-            info = dict()
-            info.update(**f.attrs)
-    except IOError:
-        print("File with data not found, skipping.")
-        continue
+        try:
+            with h5py.File(filename, "r") as f:
+                vector = f["vector"][()]
+                matrix = f["matrix"][()]
+                info = dict()
+                info.update(**f.attrs)
+        except IOError:
+            print("File with data not found, skipping.")
+            continue
 
-    # result = hamming(vector, matrix)
+        # result = hamming(vector, matrix)
 
-    result = hamming(vector, matrix, info["vector_length"])
-    print(f"Result check: {np.unique(result)}")
+        result = hamming(vector, matrix, info["vector_length"], storage)
+        print(f"Result check: {np.unique(result)}")
 
-    setup = "from __main__ import hamming"
-    n_runs = 100
-    n_reps = 3
+        time_result = time_method(
+            compute_xor, vector, matrix, n_reps=n_reps, n_runs=n_runs)
+        yield ("xor", *time_result)
+        xor = compute_xor(vector, matrix)
 
-    time_result = repeat(partial(compute_xor, vector, matrix), setup=setup, repeat=n_reps, number=n_runs)
-    print(f"XOR computation runtime: {run_stats(time_result, n_runs)}")
+        time_result = time_method(
+            compute_bits, xor, storage, info["vector_length"], n_reps=n_reps, n_runs=n_runs)
+        yield ("bit conversion", *time_result)
+        bits = compute_bits(xor, storage, info["vector_length"])
 
-    xor = compute_xor(vector, matrix)
-    time_result = repeat(partial(compute_bits, xor, storage, info["vector_length"]), setup=setup, repeat=n_reps, number=n_runs)
-    print(f"Bit unpacking runtime: {run_stats(time_result, n_runs)}")
+        time_result = time_method(
+            compute_nonzero, bits, n_reps=n_reps, n_runs=n_runs)
+        yield ("bit count", *time_result)
 
-    bits = compute_bits(xor, storage, info["vector_length"])
-    time_result = repeat(partial(compute_nonzero, bits), setup=setup, repeat=n_reps, number=n_runs)
-    print(f"Active bit counting runtime: {run_stats(time_result, n_runs)}")
-
-    time_result = repeat(partial(hamming, vector, matrix, info["vector_length"]), setup=setup, repeat=n_reps, number=n_runs)
-    print(f"Hamming distance total runtime: {run_stats(time_result, n_runs)}")
+        time_result = time_method(
+            hamming, vector, matrix, info["vector_length"], storage, n_reps=n_reps, n_runs=n_runs)
+        yield ("hamming distance", *time_result)
