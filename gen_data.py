@@ -5,6 +5,7 @@ import sys
 import argparse
 from time import time
 import re
+import os
 
 parameter_help = """
 Dataset Info
@@ -52,6 +53,9 @@ stamp = current_dt.strftime("%Y-%m-%d_%H-%M-%S")
 use_fletcher = True
 compression_level = 3
 
+datapath = "data"
+storage_types = ["bool", "byte", "uint32"]
+
 print(f"Initializing dataset generation with seed: {seed} at {stamp}.")
 
 info = {
@@ -68,48 +72,27 @@ info = {
     "compression_level": compression_level
 }
 
-# parser = argparse.ArgumentParser()
+
+parser = argparse.ArgumentParser()
+parser.add_argument("n_vector", help="Number of vectors in data. Python expressions can be used, i.e. 1e3 == 1000.")
+parser.add_argument("n_elements", help="Number of elements in each vector (i.e. vector length). Python expressions can be used, i.e. 2**16 == 65536")
+parser.add_argument("--path", "-p", default=datapath,
+                    help=f"Path to the data folder. (default = 'data')")
+parser.add_argument("--storages", "-s", choices=storage_types, action="append", default=[],
+                    help=f"Choose which storage types to generate. Can be used multiple times to generate multiple storage types.")
+
+args = parser.parse_args()
+
+datapath = args.path
+storages = args.storages
+info["vector_count"] = int(eval(args.n_vector))
+info["vector_length"] = int(eval(args.n_elements))
+
 # for (k, v) in info.items():
 #     ma, mb = re.search(r"^(\w)", k), re.search(r"_?(?<=\_)(\w)", k)
 #     short = "-" + ma.group(0) + (mb.group(1) if mb is not None else "")
 
 #     parser.add_argument("--" + k, short)
-
-
-print(f"Settings:\n- number of vectors: {info['vector_count']}\n- vector length: {info['vector_length']}\n- storage type: {info['storage']}"
-      + "\n- randomization method: {info['randomization']}\n- active fraction: {info['active_fraction']}\n- random fraction: {info['random_fraction']}"
-      + "\n- version: {info['version']}")
-
-rng = np.random.RandomState(info["seed"])
-
-vector_shape = (int(info["vector_length"]), 1)
-matrix_shape = (int(info["vector_count"]), int(info["vector_length"]))
-rng_max_val = 2
-dtype = np.bool
-
-# old version
-# if info["storage"] == "bool":
-#     vector_shape = (info["vector_length"], 1)
-#     matrix_shape = (info["vector_count"], info["vector_length"])
-#     rng_max_val = 2
-#     dtype = np.bool
-# elif info["storage"] == "byte":
-#     if info["vector_length"] % 8 != 0:
-#         raise Exception("The parameter <vector_length> must be divisible by 8 when using 'byte' <storage>!")
-#     vector_shape = (info["vector_length"] >> 3, 1)
-#     matrix_shape = (info["vector_count"] >> 3, info["vector_length"])
-#     rng_max_val = 8
-#     dtype = np.bool
-# elif info["storage"] == "uint32":
-#     if info["vector_length"] % 32 != 0:
-#         raise Exception("The parameter <vector_length> must be divisible by 32 when using 'uint32' <storage>!")
-#     vector_shape = (info["vector_length"] >> 5, 1)
-#     matrix_shape = (info["vector_count"] >> 5, info["vector_length"])
-#     rng_max_val = 32
-#     dtype = np.bool
-# else:
-#     raise Exception(f"Unknown storage type: {info['storage']}!")
-
 
 def activate(x, f, s):
     """Activate "f" fraction of total "s" bits in the array "x"
@@ -125,53 +108,91 @@ def mutate(x, f, s):
     return x
 
 
-print("Generating data...")
+for storage in storages:
+    info["storage"] = storage
 
-if info["randomization"] == "full":
-    # do full randomization
-    vector = rng.randint(0, rng_max_val, vector_shape, dtype)
-    matrix = rng.randint(0, rng_max_val, matrix_shape, dtype)
-elif info["randomization"] == "mutate":
-    vector = rng.randint(0, rng_max_val, vector_shape, dtype)
-    matrix = np.tile(vector.T, (matrix_shape[0], 1))
-    matrix = np.apply_along_axis(mutate, 0, matrix.T, info["active_fraction"], info["vector_length"]).T
-elif info["randomization"] == "sparse":
-    vector = np.zeros(vector_shape, dtype=dtype)
-    matrix = np.zeros(matrix_shape, dtype=dtype)
-    matrix = np.apply_along_axis(activate, 0, matrix.T, 0, info["active_fraction"], info["vector_length"]).T
-else:
-    raise Exception(f"Unknown randomization method {info['randomization']}!")
+    print(f"Settings:\n- number of vectors: {info['vector_count']}\n- vector length: {info['vector_length']}\n- storage type: {info['storage']}"
+        + "\n- randomization method: {info['randomization']}\n- active fraction: {info['active_fraction']}\n- random fraction: {info['random_fraction']}"
+        + "\n- version: {info['version']}")
 
-print("Data generation complete. Compressing data (if necessary).")
-# compress
-order = sys.byteorder
-if info["storage"] == "bool":
-    pass  # no compression
-elif info["storage"] == "byte":
-    if info["vector_length"] % 8 != 0:
-        raise Exception("The parameter 'vector_length' must be divisible by 8 when using 'byte' storage!")
-    matrix = np.packbits(matrix, 1, bitorder="big").reshape(matrix_shape[0], vector_shape[0] >> 3)
-    vector = np.packbits(vector, bitorder="big")[:, np.newaxis]
-elif info["storage"] == "uint32":
-    if info["vector_length"] % 32 != 0:
-        raise Exception("The parameter 'vector_length' must be divisible by 32 when using 'uint32' storage!")
-    if order == "little":
-        matrix = np.packbits(matrix.reshape(-1, 4, 8)[:, ::-1], bitorder="big").view(np.uint32).reshape(matrix_shape[0], vector_shape[0] >> 5)
-        vector = np.packbits(vector.reshape(-1, 4, 8)[:, ::-1], bitorder="big").view(np.uint32)[:, np.newaxis]
+    rng = np.random.RandomState(info["seed"])
+
+    vector_shape = (int(info["vector_length"]), 1)
+    matrix_shape = (int(info["vector_count"]), int(info["vector_length"]))
+    rng_max_val = 2
+    dtype = np.bool
+
+    # old version
+    # if info["storage"] == "bool":
+    #     vector_shape = (info["vector_length"], 1)
+    #     matrix_shape = (info["vector_count"], info["vector_length"])
+    #     rng_max_val = 2
+    #     dtype = np.bool
+    # elif info["storage"] == "byte":
+    #     if info["vector_length"] % 8 != 0:
+    #         raise Exception("The parameter <vector_length> must be divisible by 8 when using 'byte' <storage>!")
+    #     vector_shape = (info["vector_length"] >> 3, 1)
+    #     matrix_shape = (info["vector_count"] >> 3, info["vector_length"])
+    #     rng_max_val = 8
+    #     dtype = np.bool
+    # elif info["storage"] == "uint32":
+    #     if info["vector_length"] % 32 != 0:
+    #         raise Exception("The parameter <vector_length> must be divisible by 32 when using 'uint32' <storage>!")
+    #     vector_shape = (info["vector_length"] >> 5, 1)
+    #     matrix_shape = (info["vector_count"] >> 5, info["vector_length"])
+    #     rng_max_val = 32
+    #     dtype = np.bool
+    # else:
+    #     raise Exception(f"Unknown storage type: {info['storage']}!")
+
+
+    print("Generating data...")
+
+    if info["randomization"] == "full":
+        # do full randomization
+        vector = rng.randint(0, rng_max_val, vector_shape, dtype)
+        matrix = rng.randint(0, rng_max_val, matrix_shape, dtype)
+    elif info["randomization"] == "mutate":
+        vector = rng.randint(0, rng_max_val, vector_shape, dtype)
+        matrix = np.tile(vector.T, (matrix_shape[0], 1))
+        matrix = np.apply_along_axis(mutate, 0, matrix.T, info["active_fraction"], info["vector_length"]).T
+    elif info["randomization"] == "sparse":
+        vector = np.zeros(vector_shape, dtype=dtype)
+        matrix = np.zeros(matrix_shape, dtype=dtype)
+        matrix = np.apply_along_axis(activate, 0, matrix.T, 0, info["active_fraction"], info["vector_length"]).T
     else:
-        matrix = np.packbits(matrix.reshape(-1, 4, 8), bitorder="big").view(np.uint32).reshape(matrix_shape[0], vector_shape[0] >> 5)
-        vector = np.packbits(vector.reshape(-1, 4, 8), bitorder="big").view(np.uint32)[:, np.newaxis]
-else:
-    raise Exception(f"Unknown storage type: {info['storage']}!")
+        raise Exception(f"Unknown randomization method {info['randomization']}!")
 
-filename = f"bits_{info['vector_count']}x{info['vector_length']}_{info['storage']}_{info['randomization']}.hdf5"
-print(f"Saving data to {filename}.")
-with h5py.File(filename, "w") as f:
-    f.attrs.update(**info)
-    now = time()
-    f.create_dataset("vector", data=vector, compression="gzip", compression_opts=compression_level, fletcher32=use_fletcher)
-    vector_saving_runtime = time() - now
-    print(f"Vector saved. Saving time was {vector_saving_runtime}s. Estimated matrix saving time: {vector_saving_runtime * matrix_shape[0]}s.")
-    f.create_dataset("matrix", data=matrix, compression="gzip", compression_opts=compression_level, fletcher32=use_fletcher)
+    print("Data generation complete. Compressing data (if necessary).")
+    # compress
+    order = sys.byteorder
+    if info["storage"] == "bool":
+        pass  # no compression
+    elif info["storage"] == "byte":
+        if info["vector_length"] % 8 != 0:
+            raise Exception("The parameter 'vector_length' must be divisible by 8 when using 'byte' storage!")
+        matrix = np.packbits(matrix, 1, bitorder="big").reshape(matrix_shape[0], vector_shape[0] >> 3)
+        vector = np.packbits(vector, bitorder="big")[:, np.newaxis]
+    elif info["storage"] == "uint32":
+        if info["vector_length"] % 32 != 0:
+            raise Exception("The parameter 'vector_length' must be divisible by 32 when using 'uint32' storage!")
+        if order == "little":
+            matrix = np.packbits(matrix.reshape(-1, 4, 8)[:, ::-1], bitorder="big").view(np.uint32).reshape(matrix_shape[0], vector_shape[0] >> 5)
+            vector = np.packbits(vector.reshape(-1, 4, 8)[:, ::-1], bitorder="big").view(np.uint32)[:, np.newaxis]
+        else:
+            matrix = np.packbits(matrix.reshape(-1, 4, 8), bitorder="big").view(np.uint32).reshape(matrix_shape[0], vector_shape[0] >> 5)
+            vector = np.packbits(vector.reshape(-1, 4, 8), bitorder="big").view(np.uint32)[:, np.newaxis]
+    else:
+        raise Exception(f"Unknown storage type: {info['storage']}!")
 
-print("Done.")
+    filename = os.path.join(datapath, f"bits_{info['vector_count']}x{info['vector_length']}_{info['storage']}_{info['randomization']}.hdf5")
+    print(f"Saving data to {filename}.")
+    with h5py.File(filename, "w") as f:
+        f.attrs.update(**info)
+        now = time()
+        f.create_dataset("vector", data=vector, compression="gzip", compression_opts=compression_level, fletcher32=use_fletcher)
+        vector_saving_runtime = time() - now
+        print(f"Vector saved. Saving time was {vector_saving_runtime}s. Estimated matrix saving time: {vector_saving_runtime * matrix_shape[0]}s.")
+        f.create_dataset("matrix", data=matrix, compression="gzip", compression_opts=compression_level, fletcher32=use_fletcher)
+
+    print("Done.")
