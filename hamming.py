@@ -16,18 +16,30 @@ class Hamming():
         self.hq_distances = None  # the quantized hamming distances (final result)
 
     def compute_xor(self):
+        # Copmute XOR between the vector and the matrix (use "self.vector" & "self.matrix" to obtain the input data)
         raise NotImplementedError()
+        return None
 
     def convert_bits(self):
+        # Do a bit packing/unpacking of the XOR result (stored as self.xor)
+        # Might not be needed in some cases
         raise NotImplementedError()
+        return None
 
     def pop_count(self):
+        # Count active bits in the XOR result (stored as self.bits)
+        # result should be the Hamming distance
         raise NotImplementedError()
+        return None
 
     def quantize_distance(self):
+        # Threshold or quantize the Hamming distances for each row of the "self.distances" variable
+        # quantization levels are specified in the self.q_levels but for now only q_levels = 2 is used
         raise NotImplementedError()
+        return None
 
     def hamming(self):
+        # The full Hamming distance. This function just calls the individual methods
         self.xor = self.compute_xor()
 
         self.bits = self.convert_bits()
