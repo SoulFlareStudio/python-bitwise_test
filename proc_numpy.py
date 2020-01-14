@@ -1,50 +1,49 @@
 import numpy as np
 import h5py
 from time_utils import time_method
+from hamming import Hamming
 
 
-def compute_xor(vector, matrix):
-    result = np.bitwise_xor(vector.T, matrix)
-    return result
+class NumpyHamming(Hamming):
 
+    def compute_xor(self):
+        result = np.bitwise_xor(self.vector.T, self.matrix)
+        return result
 
-def compute_bits(xor, storage, vector_length):
-    if storage == "bool":
-        result = xor
-    elif storage == "byte":
-        result = np.unpackbits(
-            xor[:, ::-1]).reshape(-1, vector_length).astype(np.bool)
-    elif storage == "uint32":
-        result = np.unpackbits(xor.view(np.uint8)[:, ::-1]).reshape(-1, vector_length).astype(np.bool)
+    def convert_bits(self):
+        if self.storage == "bool":
+            result = self.xor
+        elif self.storage == "byte":
+            result = np.unpackbits(self.xor[:, ::-1]).reshape(-1, self.vector_length).astype(np.bool)
+        elif self.storage == "uint32":
+            result = np.unpackbits(self.xor.view(np.uint8)[:, ::-1]).reshape(-1, self.vector_length).astype(np.bool)
+        return result
 
-    return result
+    def pop_count(self):
+        return np.count_nonzero(self.bits, 1)
 
+    def quantize(self):
+        if self.q_levels == 2:
+            threshold = self.vector_length >> 1
+            result = (np.array(self.distances) > threshold).astype(self.storage)
+        else:
+            raise NotImplementedError()
+        return result
 
-def compute_nonzero(bits):
-    return np.count_nonzero(bits, 1)
+    # def hamming(self):
+    #     # compute XOR
+    #     xor = np.bitwise_xor(vector.T, matrix)
 
+    #     if storage == "bool":
+    #         result = np.sum(xor, 1)
+    #     elif storage == "byte":
+    #         result = np.count_nonzero(np.unpackbits(
+    #             xor[:, ::-1]).reshape(-1, vector_length).astype(np.bool), 1)
+    #     elif storage == "uint32":
+    #         result = np.count_nonzero(np.unpackbits(
+    #             xor.view(np.uint8)[:, ::-1]).reshape(-1, vector_length).astype(np.bool), 1)
 
-def hamming(vector, matrix, vector_length, storage):
-    # compute XOR
-    xor = np.bitwise_xor(vector.T, matrix)
-
-    if storage == "bool":
-        result = np.sum(xor, 1)
-    elif storage == "byte":
-        result = np.count_nonzero(np.unpackbits(
-            xor[:, ::-1]).reshape(-1, vector_length).astype(np.bool), 1)
-    elif storage == "uint32":
-        result = np.count_nonzero(np.unpackbits(
-            xor.view(np.uint8)[:, ::-1]).reshape(-1, vector_length).astype(np.bool), 1)
-
-    return result
-
-
-def run_stats(run_list, runs):
-    normalized = np.array(run_list) / runs
-    mean = np.mean(normalized)
-    std = np.std(normalized)
-    return f"avg = {mean} (std = {std})"
+    #     return result
 
 
 def run_tests(filename_pattern: str, storage_types: list, n_runs: int, n_reps: int):
@@ -62,25 +61,24 @@ def run_tests(filename_pattern: str, storage_types: list, n_runs: int, n_reps: i
             print("File with data not found, skipping.")
             continue
 
-        # result = hamming(vector, matrix)
+        hamming = NumpyHamming(vector, matrix, info["vector_length"], storage)
+        result = hamming.hamming()
+        yield ("info", f"Result check: {np.unique(result)}")
 
-        result = hamming(vector, matrix, info["vector_length"], storage)
-        print(f"Result check: {np.unique(result)}")
-
-        time_result = time_method(
-            compute_xor, vector, matrix, n_reps=n_reps, n_runs=n_runs)
+        time_result = time_method(hamming.compute_xor, n_reps=n_reps, n_runs=n_runs)
         yield ("xor", *time_result)
-        xor = compute_xor(vector, matrix)
+        hamming.xor = hamming.compute_xor()
 
-        time_result = time_method(
-            compute_bits, xor, storage, info["vector_length"], n_reps=n_reps, n_runs=n_runs)
+        time_result = time_method(hamming.convert_bits, n_reps=n_reps, n_runs=n_runs)
         yield ("bit conversion", *time_result)
-        bits = compute_bits(xor, storage, info["vector_length"])
+        hamming.bits = hamming.convert_bits()
 
-        time_result = time_method(
-            compute_nonzero, bits, n_reps=n_reps, n_runs=n_runs)
+        time_result = time_method(hamming.pop_count, n_reps=n_reps, n_runs=n_runs)
         yield ("bit count", *time_result)
+        hamming.distances = hamming.pop_count()
 
-        time_result = time_method(
-            hamming, vector, matrix, info["vector_length"], storage, n_reps=n_reps, n_runs=n_runs)
+        time_result = time_method(hamming.quantize, n_reps=n_reps, n_runs=n_runs)
+        yield ("quantization", *time_result)
+
+        time_result = time_method(hamming.hamming, n_reps=n_reps, n_runs=n_runs)
         yield ("hamming distance", *time_result)
